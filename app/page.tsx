@@ -85,7 +85,7 @@ export default function Dashboard() {
         updated_at: price.updated_at,
       })
     }
-    return rows.sort((a, b) => b.edge - a.edge)
+    return rows.sort((a, b) => (b.edge * b.model_prob) - (a.edge * a.model_prob))
   }
 
   const kalshiRows = merge('kalshi')
@@ -95,7 +95,7 @@ export default function Dashboard() {
   const polyBestOvers = polyRows.filter(r => r.edge >= EDGE_THRESH && r.model_prob >= MODEL_THRESH)
   const polyBestUnders = polyRows
     .filter(r => (r.under_edge ?? 0) >= EDGE_THRESH && (1 - r.model_prob) >= MODEL_THRESH)
-    .sort((a, b) => (b.under_edge ?? 0) - (a.under_edge ?? 0))
+    .sort((a, b) => ((b.under_edge ?? 0) * (1 - b.model_prob)) - ((a.under_edge ?? 0) * (1 - a.model_prob)))
 
   const totalBestBets = kalshiBestBets.length + polyBestOvers.length + polyBestUnders.length
 
@@ -221,11 +221,14 @@ function BetCard({ row, isUnder = false }: { row: MergedRow; isUnder?: boolean }
   const displayMarketPrice = isUnder 
     ? (row.under_price ?? (1 - row.market_price))
     : row.market_price
+  const marketColor = row.market === 'kalshi' ? 'var(--green-bright)' : 'var(--blue)'
   return (
-    <div className="bet-card">
+    <div className="bet-card" style={{ borderColor: marketColor, borderWidth: '1px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <span className={`badge badge-${row.team.toLowerCase()}`}>{row.team}</span>
-        <span className={`market-badge market-badge-${row.market}`}>{row.market}</span>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', color: marketColor, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+          {row.market}
+        </span>
       </div>
       <div>
         <div className="bet-player" style={{ color: row.team === 'NYK' ? 'var(--nyk)' : 'var(--text)' }}>{row.player}</div>
@@ -344,7 +347,7 @@ function MarketRow({ row, isUnder = false }: { row: MergedRow; isUnder?: boolean
           <span style={{ color: 'var(--text-muted)' }}>vs</span>
           <span style={{ color: 'var(--text-dim)' }}>
             {Math.round((isUnder
-              ? (row.under_price !== undefined ? row.under_price : (1 - row.market_price))
+              ? (row.under_price !== undefined ? (1 - row.under_price) : row.market_price)
               : row.market_price) * 100)}%
           </span>
         </div>
