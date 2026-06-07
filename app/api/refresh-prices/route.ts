@@ -100,17 +100,18 @@ async function fetchPolymarketPrices() {
       if (seen.has(key)) continue
       seen.add(key)
 
-      // long=false is the over side
+      // description='Yes' is the over side
       let overPrice: number | null = null
       let underPrice: number | null = null
       for (const side of m.marketSides || []) {
         const p = parseFloat(side.price)
-        if (side.long === false) overPrice = p
+        if (side.description === 'Yes') overPrice = p
         else underPrice = p
       }
       if (overPrice === null || underPrice === null) continue
       if (overPrice + underPrice < 1.05) continue
-      if (underPrice < 0.40) continue
+      // Filter illiquid: under price must be > 0.45
+      if (underPrice < 0.45) continue
       if (overPrice <= 0) continue
 
       rows.push({
