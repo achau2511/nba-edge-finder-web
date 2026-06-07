@@ -116,7 +116,7 @@ async function fetchPolymarketPrices() {
         player, stat, line,
         market: 'polymarket',
         price: Math.round(overPrice * 10000) / 10000,
-        under_price: Math.round((1 - overPrice) * 10000) / 10000,
+        under_price: Math.round((1 - underPrice) * 10000) / 10000,
         updated_at: new Date().toISOString(),
       })
     }
