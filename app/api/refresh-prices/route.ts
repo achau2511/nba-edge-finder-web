@@ -100,12 +100,12 @@ async function fetchPolymarketPrices() {
       if (seen.has(key)) continue
       seen.add(key)
 
-      // description='Yes' is the over side
+      // description='No' is the over side shown on app
       let overPrice: number | null = null
       let underPrice: number | null = null
       for (const side of m.marketSides || []) {
         const p = parseFloat(side.price)
-        if (side.description === 'Yes') overPrice = p
+        if (side.description === 'No') overPrice = p
         else underPrice = p
       }
       if (overPrice === null || underPrice === null) continue
@@ -136,7 +136,7 @@ export async function POST() {
 
     const allRows = [...kalshiRows, ...polyRows]
 
-    // Delete and reinsert
+    // Delete and reinsert all market prices
     await supabase.from('market_prices').delete().gte('id', 0)
     const { error } = await supabase.from('market_prices').insert(allRows)
 
