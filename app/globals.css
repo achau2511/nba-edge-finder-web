@@ -180,8 +180,8 @@ tbody tr:last-child td { border-bottom: none; }
   padding: 2px 5px;
   border-radius: 3px;
 }
-.market-badge-kalshi { background: rgba(59, 130, 246, 0.15); color: var(--blue); }
-.market-badge-polymarket { background: rgba(139, 92, 246, 0.15); color: #a78bfa; }
+.market-badge-kalshi { background: rgba(34, 197, 94, 0.15); color: var(--green-bright); }
+.market-badge-polymarket { background: rgba(59, 130, 246, 0.15); color: var(--blue); }
 
 .ticker { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em; color: var(--text-muted); text-transform: uppercase; }
 .last-updated { font-family: var(--font-mono); font-size: 10px; color: var(--text-muted); }

@@ -4,12 +4,14 @@ import { useEffect, useState, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import type { Prediction, MarketPrice, MergedRow, Stat, Market } from '@/lib/types'
 
-const STAT_EMOJI: Record<Stat, string> = {
+const STAT_LABEL: Record<Stat, string> = {
   points: 'PTS', rebounds: 'REB', assists: 'AST', threes: '3PM'
 }
 
 const EDGE_THRESH = 0.12
 const MODEL_THRESH = 0.75
+const UNDER_EDGE_THRESH = -0.12
+const UNDER_MODEL_THRESH = 0.25
 
 function edgeClass(edge: number) {
   if (edge >= 0.15) return 'edge-high'
@@ -86,10 +88,13 @@ export default function Dashboard() {
 
   const kalshiRows = merge('kalshi')
   const polyRows = merge('polymarket')
-  const bestBets = [
-    ...kalshiRows.filter(r => r.edge >= EDGE_THRESH && r.model_prob >= MODEL_THRESH),
-    ...polyRows.filter(r => r.edge >= EDGE_THRESH && r.model_prob >= MODEL_THRESH),
-  ].sort((a, b) => b.model_prob * b.edge - a.model_prob * a.edge)
+
+  const kalshiBestBets = kalshiRows.filter(r => r.edge >= EDGE_THRESH && r.model_prob >= MODEL_THRESH)
+  const polyBestBets = polyRows.filter(r => r.edge >= EDGE_THRESH && r.model_prob >= MODEL_THRESH)
+  const polyBestUnders = polyRows.filter(r => r.edge <= UNDER_EDGE_THRESH && r.model_prob <= UNDER_MODEL_THRESH)
+    .sort((a, b) => a.edge - b.edge)
+
+  const totalBestBets = kalshiBestBets.length + polyBestBets.length + polyBestUnders.length
 
   const gameDate = predictions[0]?.game_date
     ? new Date(predictions[0].game_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
@@ -137,13 +142,13 @@ export default function Dashboard() {
         borderBottom: '1px solid var(--border)',
       }}>
         {[
-          { label: 'Best Bets', value: bestBets.length },
+          { label: 'Best Bets', value: totalBestBets },
           { label: 'Kalshi', value: kalshiRows.length },
           { label: 'K +Edge', value: kalshiRows.filter(r => r.edge > 0.07).length },
           { label: 'Poly', value: polyRows.length },
           { label: 'P +Edge', value: polyRows.filter(r => r.edge > 0.07).length },
         ].map(m => (
-          <div key={m.label} className="card" style={{ padding: '10px 10px' }}>
+          <div key={m.label} className="card" style={{ padding: '10px' }}>
             <div className="metric-value">{loading ? '—' : m.value}</div>
             <div className="metric-label">{m.label}</div>
           </div>
@@ -153,7 +158,7 @@ export default function Dashboard() {
       {/* Tabs */}
       <div className="tab-bar" style={{ padding: '0 var(--px)' }}>
         {([
-          ['best', `Best Bets${bestBets.length > 0 ? ` (${bestBets.length})` : ''}`],
+          ['best', `Best Bets${totalBestBets > 0 ? ` (${totalBestBets})` : ''}`],
           ['kalshi', 'Kalshi'],
           ['polymarket', 'Polymarket'],
         ] as [Tab, string][]).map(([key, label]) => (
@@ -171,7 +176,13 @@ export default function Dashboard() {
           </div>
         ) : (
           <>
-            {tab === 'best' && <BestBetsTab rows={bestBets} />}
+            {tab === 'best' && (
+              <BestBetsTab
+                kalshiBets={kalshiBestBets}
+                polyBets={polyBestBets}
+                polyUnders={polyBestUnders}
+              />
+            )}
             {tab === 'kalshi' && <MarketsTab rows={kalshiRows} market="kalshi" />}
             {tab === 'polymarket' && <MarketsTab rows={polyRows} market="polymarket" />}
           </>
@@ -181,7 +192,26 @@ export default function Dashboard() {
   )
 }
 
-function BetCard({ row }: { row: MergedRow }) {
+function SectionHeader({ title, count, color = 'var(--nyk)' }: { title: string; count: number; color?: string }) {
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: '8px',
+      marginBottom: '12px', marginTop: '20px',
+    }}>
+      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', letterSpacing: '0.08em', color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+        {title}
+      </div>
+      {count > 0 && (
+        <div style={{ background: color, color: '#000', borderRadius: '3px', padding: '1px 5px', fontSize: '9px', fontWeight: 700, fontFamily: 'var(--font-mono)' }}>
+          {count}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function BetCard({ row, isUnder = false }: { row: MergedRow; isUnder?: boolean }) {
+  const teamClass = row.team === 'NYK' ? 'badge-nyk' : 'badge-sas'
   return (
     <div className="bet-card">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -189,8 +219,8 @@ function BetCard({ row }: { row: MergedRow }) {
         <span className={`market-badge market-badge-${row.market}`}>{row.market}</span>
       </div>
       <div>
-        <div className="bet-player">{row.player}</div>
-        <div className="bet-detail">over {row.line} {row.stat}</div>
+        <div className="bet-player" style={{ color: row.team === 'NYK' ? 'var(--nyk)' : 'var(--text)' }}>{row.player}</div>
+        <div className="bet-detail">{isUnder ? 'under' : 'over'} {row.line} {row.stat}</div>
       </div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
         <div className={`bet-edge ${edgeClass(row.edge)}`}>{edgeSign(row.edge)}</div>
@@ -217,21 +247,92 @@ function BetCard({ row }: { row: MergedRow }) {
   )
 }
 
-function BestBetsTab({ rows }: { rows: MergedRow[] }) {
+function BetGrid({ rows, isUnder = false }: { rows: MergedRow[]; isUnder?: boolean }) {
   if (rows.length === 0) {
     return (
-      <div style={{ textAlign: 'center', padding: '60px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: '12px' }}>
-        No best bets right now
+      <div style={{ padding: '20px 0', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: '11px' }}>
+        None right now
       </div>
     )
   }
   return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '10px' }}>
+      {rows.map((r, i) => <BetCard key={i} row={r} isUnder={isUnder} />)}
+    </div>
+  )
+}
+
+function BestBetsTab({ kalshiBets, polyBets, polyUnders }: {
+  kalshiBets: MergedRow[]
+  polyBets: MergedRow[]
+  polyUnders: MergedRow[]
+}) {
+  const total = kalshiBets.length + polyBets.length + polyUnders.length
+  return (
     <div>
-      <div style={{ marginBottom: '12px', fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+      <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
         EDGE &gt; {EDGE_THRESH * 100}% · MODEL &gt; {MODEL_THRESH * 100}%
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '10px' }}>
-        {rows.map((r, i) => <BetCard key={i} row={r} />)}
+
+      <div style={{ marginTop: '4px' }}>
+        <SectionHeader title="Kalshi Best Bets" count={kalshiBets.length} color="var(--green-bright)" />
+        <BetGrid rows={kalshiBets} />
+      </div>
+
+      <div>
+        <SectionHeader title="Polymarket Best Bets" count={polyBets.length} color="var(--blue)" />
+        <BetGrid rows={polyBets} />
+      </div>
+
+      <div style={{ borderTop: '1px solid var(--border)', paddingTop: '4px' }}>
+        <SectionHeader title="Polymarket Best Unders" count={polyUnders.length} color="var(--red-muted)" />
+        <div style={{ fontSize: '10px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginBottom: '10px' }}>
+          EDGE &lt; -{UNDER_EDGE_THRESH * -100}% · MODEL &lt; {UNDER_MODEL_THRESH * 100}%
+        </div>
+        <BetGrid rows={polyUnders} isUnder />
+      </div>
+
+      {total === 0 && (
+        <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: '12px' }}>
+          No best bets right now
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Mobile-friendly row card for markets tab
+function MarketRow({ row }: { row: MergedRow }) {
+  return (
+    <div style={{
+      padding: '12px',
+      borderBottom: '1px solid var(--border)',
+      display: 'grid',
+      gridTemplateColumns: '1fr auto',
+      gap: '8px',
+      alignItems: 'center',
+    }}>
+      <div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '3px' }}>
+          <span className={`badge badge-${row.team.toLowerCase()}`}>{row.team}</span>
+          <span style={{ color: row.team === 'NYK' ? 'var(--nyk)' : 'var(--text)', fontSize: '13px', fontWeight: 500 }}>{row.player}</span>
+        </div>
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+          <span className="stat-label">{STAT_LABEL[row.stat]} {row.line}</span>
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-muted)' }}>
+            pred {row.prediction.toFixed(1)}
+          </span>
+        </div>
+      </div>
+      <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-end' }}>
+        <span className={edgeClass(row.edge)} style={{ fontFamily: 'var(--font-mono)', fontSize: '15px', fontWeight: 700 }}>
+          {edgeSign(row.edge)}
+        </span>
+        <div style={{ display: 'flex', gap: '6px', fontFamily: 'var(--font-mono)', fontSize: '11px' }}>
+          <span className={probClass(row.model_prob)}>{Math.round(row.model_prob * 100)}%</span>
+          <span style={{ color: 'var(--text-muted)' }}>vs</span>
+          <span style={{ color: 'var(--text-dim)' }}>{Math.round(row.market_price * 100)}%</span>
+        </div>
       </div>
     </div>
   )
@@ -244,29 +345,27 @@ function MarketsTab({ rows, market }: { rows: MergedRow[]; market: Market }) {
 
   return (
     <div>
-      {/* Stat filter — horizontal scroll on mobile */}
-      <div style={{ display: 'flex', gap: '6px', marginBottom: '12px', overflowX: 'auto', paddingBottom: '4px', WebkitOverflowScrolling: 'touch' }}>
+      {/* Stat filter */}
+      <div style={{ display: 'flex', gap: '6px', marginBottom: '12px', overflowX: 'auto', paddingBottom: '4px' }}>
         {stats.map(s => (
           <button
             key={s}
             onClick={() => setStatFilter(s)}
             style={{
-              padding: '4px 10px',
+              padding: '5px 11px',
               borderRadius: '3px',
               border: '1px solid',
               borderColor: statFilter === s ? 'var(--nyk)' : 'var(--border)',
               background: statFilter === s ? 'rgba(245,132,38,0.1)' : 'var(--bg-card)',
               color: statFilter === s ? 'var(--nyk)' : 'var(--text-muted)',
               fontFamily: 'var(--font-mono)',
-              fontSize: '10px',
-              letterSpacing: '0.08em',
-              textTransform: 'uppercase',
+              fontSize: '11px',
               cursor: 'pointer',
               whiteSpace: 'nowrap',
               flexShrink: 0,
             }}
           >
-            {s === 'all' ? 'All' : (STAT_EMOJI[s as Stat] + ' ' + s)}
+            {s === 'all' ? 'All' : (STAT_LABEL[s as Stat] + ' ' + s)}
           </button>
         ))}
       </div>
@@ -276,46 +375,22 @@ function MarketsTab({ rows, market }: { rows: MergedRow[]; market: Market }) {
           No {market} markets
         </div>
       ) : (
-        <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
-          <table style={{ minWidth: '500px' }}>
-            <thead>
-              <tr>
-                <th>Player</th>
-                <th>Stat</th>
-                <th>Line</th>
-                <th className="hide-mobile">Pred</th>
-                <th>Model</th>
-                <th>Mkt</th>
-                <th>Edge</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((r, i) => (
-                <tr key={i}>
-                  <td>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <span className={`badge badge-${r.team.toLowerCase()}`}>{r.team}</span>
-                      <span style={{ color: 'var(--text)', fontSize: '12px' }}>{r.player}</span>
-                    </div>
-                  </td>
-                  <td><span className="stat-label">{STAT_EMOJI[r.stat]}</span></td>
-                  <td style={{ fontFamily: 'var(--font-mono)' }}>{r.line}</td>
-                  <td className="hide-mobile" style={{ fontFamily: 'var(--font-mono)' }}>{r.prediction.toFixed(1)}</td>
-                  <td>
-                    <span className={probClass(r.model_prob)} style={{ fontFamily: 'var(--font-mono)' }}>
-                      {Math.round(r.model_prob * 100)}%
-                    </span>
-                  </td>
-                  <td style={{ fontFamily: 'var(--font-mono)' }}>{Math.round(r.market_price * 100)}%</td>
-                  <td>
-                    <span className={edgeClass(r.edge)} style={{ fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
-                      {edgeSign(r.edge)}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '6px', overflow: 'hidden' }}>
+          {/* Column headers */}
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: '1fr auto',
+            padding: '8px 12px',
+            borderBottom: '1px solid var(--border-bright)',
+          }}>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+              Player / Stat / Line
+            </span>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+              Edge · Model vs Mkt
+            </span>
+          </div>
+          {filtered.map((r, i) => <MarketRow key={i} row={r} />)}
         </div>
       )}
     </div>
