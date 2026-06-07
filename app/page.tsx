@@ -4,8 +4,8 @@ import { useEffect, useState, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import type { Prediction, MarketPrice, MergedRow, Stat, Market } from '@/lib/types'
 
-const STAT_LABEL: Record<Stat, string> = {
-  points: 'PTS', rebounds: 'REB', assists: 'AST', threes: '3PM'
+const STAT_DISPLAY: Record<Stat, string> = {
+  points: 'Points', rebounds: 'Rebounds', assists: 'Assists', threes: 'Threes'
 }
 
 const EDGE_THRESH = 0.12
@@ -318,7 +318,7 @@ function MarketRow({ row }: { row: MergedRow }) {
           <span style={{ color: row.team === 'NYK' ? 'var(--nyk)' : 'var(--text)', fontSize: '13px', fontWeight: 500 }}>{row.player}</span>
         </div>
         <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-          <span className="stat-label">{STAT_LABEL[row.stat]} {row.line}</span>
+          <span className="stat-label">{STAT_DISPLAY[row.stat]} {row.line}</span>
           <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-muted)' }}>
             pred {row.prediction.toFixed(1)}
           </span>
@@ -365,7 +365,7 @@ function MarketsTab({ rows, market }: { rows: MergedRow[]; market: Market }) {
               flexShrink: 0,
             }}
           >
-            {s === 'all' ? 'All' : (STAT_LABEL[s as Stat] + ' ' + s)}
+            {s === 'all' ? 'All' : STAT_DISPLAY[s as Stat]}
           </button>
         ))}
       </div>
