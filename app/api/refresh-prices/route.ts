@@ -105,16 +105,18 @@ async function fetchPolymarketPrices() {
       let underPrice: number | null = null
       for (const side of m.marketSides || []) {
         const p = parseFloat(side.price)
+        if (isNaN(p)) continue
         if (side.description === 'No') overPrice = p
         else underPrice = p
       }
       if (overPrice === null || underPrice === null) continue
+      if (overPrice <= 0) continue
 
       rows.push({
         player, stat, line,
         market: 'polymarket',
         price: Math.round(overPrice * 10000) / 10000,
-        under_price: Math.round(underPrice * 10000) / 10000,
+        under_price: Math.round((1 - overPrice) * 10000) / 10000,
         updated_at: new Date().toISOString(),
       })
     }
