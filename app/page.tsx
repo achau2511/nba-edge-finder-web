@@ -347,7 +347,7 @@ function MarketRow({ row, isUnder = false }: { row: MergedRow; isUnder?: boolean
           <span style={{ color: 'var(--text-muted)' }}>vs</span>
           <span style={{ color: 'var(--text-dim)' }}>
             {Math.round((isUnder
-              ? (row.under_price !== undefined ? (1 - row.under_price) : row.market_price)
+              ? (row.under_price ?? (1 - row.market_price))
               : row.market_price) * 100)}%
           </span>
         </div>
