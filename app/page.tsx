@@ -10,8 +10,6 @@ const STAT_DISPLAY: Record<Stat, string> = {
 
 const EDGE_THRESH = 0.12
 const MODEL_THRESH = 0.75
-const UNDER_EDGE_THRESH = -0.12
-const UNDER_MODEL_THRESH = 0.25
 
 function edgeClass(edge: number) {
   if (edge >= 0.15) return 'edge-high'
@@ -31,7 +29,7 @@ function edgeSign(edge: number) {
   return edge >= 0 ? `+${Math.round(edge * 100)}` : `${Math.round(edge * 100)}`
 }
 
-type Tab = 'best' | 'kalshi' | 'polymarket'
+type Tab = 'best' | 'kalshi' | 'polymarket' | 'polymarket-unders'
 
 export default function Dashboard() {
   const [predictions, setPredictions] = useState<Prediction[]>([])
@@ -76,10 +74,14 @@ export default function Dashboard() {
         p.player === pred.player && p.stat === pred.stat && p.line === pred.line
       )
       if (!price) continue
+      const under_model_prob = 1 - pred.model_prob
+      const under_market_price = price.under_price ?? (1 - price.price)
       rows.push({
         ...pred, market,
         market_price: price.price,
+        under_price: price.under_price,
         edge: pred.model_prob - price.price,
+        under_edge: under_model_prob - under_market_price,
         updated_at: price.updated_at,
       })
     }
@@ -90,11 +92,12 @@ export default function Dashboard() {
   const polyRows = merge('polymarket')
 
   const kalshiBestBets = kalshiRows.filter(r => r.edge >= EDGE_THRESH && r.model_prob >= MODEL_THRESH)
-  const polyBestBets = polyRows.filter(r => r.edge >= EDGE_THRESH && r.model_prob >= MODEL_THRESH)
-  const polyBestUnders = polyRows.filter(r => r.edge <= UNDER_EDGE_THRESH && r.model_prob <= UNDER_MODEL_THRESH)
-    .sort((a, b) => a.edge - b.edge)
+  const polyBestOvers = polyRows.filter(r => r.edge >= EDGE_THRESH && r.model_prob >= MODEL_THRESH)
+  const polyBestUnders = polyRows
+    .filter(r => (r.under_edge ?? 0) >= EDGE_THRESH && (1 - r.model_prob) >= MODEL_THRESH)
+    .sort((a, b) => (b.under_edge ?? 0) - (a.under_edge ?? 0))
 
-  const totalBestBets = kalshiBestBets.length + polyBestBets.length + polyBestUnders.length
+  const totalBestBets = kalshiBestBets.length + polyBestOvers.length + polyBestUnders.length
 
   const gameDate = predictions[0]?.game_date
     ? new Date(predictions[0].game_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
@@ -160,7 +163,8 @@ export default function Dashboard() {
         {([
           ['best', `Best Bets${totalBestBets > 0 ? ` (${totalBestBets})` : ''}`],
           ['kalshi', 'Kalshi'],
-          ['polymarket', 'Polymarket'],
+          ['polymarket', 'Poly Overs'],
+          ['polymarket-unders', 'Poly Unders'],
         ] as [Tab, string][]).map(([key, label]) => (
           <button key={key} className={`tab ${tab === key ? 'active' : ''}`} onClick={() => setTab(key)}>
             {label}
@@ -179,12 +183,13 @@ export default function Dashboard() {
             {tab === 'best' && (
               <BestBetsTab
                 kalshiBets={kalshiBestBets}
-                polyBets={polyBestBets}
+                polyBets={polyBestOvers}
                 polyUnders={polyBestUnders}
               />
             )}
             {tab === 'kalshi' && <MarketsTab rows={kalshiRows} market="kalshi" />}
             {tab === 'polymarket' && <MarketsTab rows={polyRows} market="polymarket" />}
+            {tab === 'polymarket-unders' && <MarketsTab rows={polyRows} market="polymarket" isUnder />}
           </>
         )}
       </div>
@@ -211,7 +216,11 @@ function SectionHeader({ title, count, color = 'var(--nyk)' }: { title: string; 
 }
 
 function BetCard({ row, isUnder = false }: { row: MergedRow; isUnder?: boolean }) {
-  const teamClass = row.team === 'NYK' ? 'badge-nyk' : 'badge-sas'
+  const displayEdge = isUnder ? (row.under_edge ?? 0) : row.edge
+  const displayModelProb = isUnder ? (1 - row.model_prob) : row.model_prob
+  const displayMarketPrice = isUnder 
+    ? (row.under_price ?? (1 - row.market_price))
+    : row.market_price
   return (
     <div className="bet-card">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -223,10 +232,10 @@ function BetCard({ row, isUnder = false }: { row: MergedRow; isUnder?: boolean }
         <div className="bet-detail">{isUnder ? 'under' : 'over'} {row.line} {row.stat}</div>
       </div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
-        <div className={`bet-edge ${edgeClass(row.edge)}`}>{edgeSign(row.edge)}</div>
+        <div className={`bet-edge ${edgeClass(displayEdge)}`}>{edgeSign(displayEdge)}</div>
         <div style={{ textAlign: 'right' }}>
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: '16px', color: 'var(--text)' }}>
-            {Math.round(row.model_prob * 100)}%
+            {Math.round(displayModelProb * 100)}%
           </div>
           <div className="stat-label">model</div>
         </div>
@@ -234,8 +243,8 @@ function BetCard({ row, isUnder = false }: { row: MergedRow; isUnder?: boolean }
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px', paddingTop: '8px', borderTop: '1px solid var(--border)' }}>
         {[
           { label: 'PRED', value: row.prediction.toFixed(1) },
-          { label: 'MODEL', value: `${Math.round(row.model_prob * 100)}%` },
-          { label: 'MKT', value: `${Math.round(row.market_price * 100)}%` },
+          { label: 'MODEL', value: `${Math.round(displayModelProb * 100)}%` },
+          { label: 'MKT', value: `${Math.round(displayMarketPrice * 100)}%` },
         ].map(m => (
           <div key={m.label}>
             <div className="stat-label">{m.label}</div>
@@ -280,14 +289,14 @@ function BestBetsTab({ kalshiBets, polyBets, polyUnders }: {
       </div>
 
       <div>
-        <SectionHeader title="Polymarket Best Bets" count={polyBets.length} color="var(--blue)" />
+        <SectionHeader title="Polymarket Best Overs" count={polyBets.length} color="var(--blue)" />
         <BetGrid rows={polyBets} />
       </div>
 
       <div style={{ borderTop: '1px solid var(--border)', paddingTop: '4px' }}>
         <SectionHeader title="Polymarket Best Unders" count={polyUnders.length} color="var(--red-muted)" />
         <div style={{ fontSize: '10px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginBottom: '10px' }}>
-          EDGE &lt; -{UNDER_EDGE_THRESH * -100}% · MODEL &lt; {UNDER_MODEL_THRESH * 100}%
+          UNDER MODEL &gt; {MODEL_THRESH * 100}% · UNDER EDGE &gt; {EDGE_THRESH * 100}%
         </div>
         <BetGrid rows={polyUnders} isUnder />
       </div>
@@ -302,7 +311,7 @@ function BestBetsTab({ kalshiBets, polyBets, polyUnders }: {
 }
 
 // Mobile-friendly row card for markets tab
-function MarketRow({ row }: { row: MergedRow }) {
+function MarketRow({ row, isUnder = false }: { row: MergedRow; isUnder?: boolean }) {
   return (
     <div style={{
       padding: '12px',
@@ -318,34 +327,44 @@ function MarketRow({ row }: { row: MergedRow }) {
           <span style={{ color: row.team === 'NYK' ? 'var(--nyk)' : 'var(--text)', fontSize: '13px', fontWeight: 500 }}>{row.player}</span>
         </div>
         <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-          <span className="stat-label">{STAT_DISPLAY[row.stat]} {row.line}</span>
+          <span className="stat-label">{isUnder ? 'under' : 'over'} {STAT_DISPLAY[row.stat]} {row.line}</span>
           <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-muted)' }}>
             pred {row.prediction.toFixed(1)}
           </span>
         </div>
       </div>
       <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-end' }}>
-        <span className={edgeClass(row.edge)} style={{ fontFamily: 'var(--font-mono)', fontSize: '15px', fontWeight: 700 }}>
-          {edgeSign(row.edge)}
+        <span className={edgeClass(isUnder ? (row.under_edge ?? 0) : row.edge)} style={{ fontFamily: 'var(--font-mono)', fontSize: '15px', fontWeight: 700 }}>
+          {edgeSign(isUnder ? (row.under_edge ?? 0) : row.edge)}
         </span>
         <div style={{ display: 'flex', gap: '6px', fontFamily: 'var(--font-mono)', fontSize: '11px' }}>
-          <span className={probClass(row.model_prob)}>{Math.round(row.model_prob * 100)}%</span>
+          <span className={probClass(isUnder ? (1 - row.model_prob) : row.model_prob)}>
+            {Math.round((isUnder ? (1 - row.model_prob) : row.model_prob) * 100)}%
+          </span>
           <span style={{ color: 'var(--text-muted)' }}>vs</span>
-          <span style={{ color: 'var(--text-dim)' }}>{Math.round(row.market_price * 100)}%</span>
+          <span style={{ color: 'var(--text-dim)' }}>
+            {Math.round((isUnder
+              ? (row.under_price !== undefined ? row.under_price : (1 - row.market_price))
+              : row.market_price) * 100)}%
+          </span>
         </div>
       </div>
     </div>
   )
 }
 
-function MarketsTab({ rows, market }: { rows: MergedRow[]; market: Market }) {
+function MarketsTab({ rows, market, isUnder = false }: { rows: MergedRow[]; market: Market; isUnder?: boolean }) {
   const [statFilter, setStatFilter] = useState<Stat | 'all'>('all')
-  const filtered = statFilter === 'all' ? rows : rows.filter(r => r.stat === statFilter)
+
+  const sortedRows = isUnder
+    ? [...rows].sort((a, b) => (b.under_edge ?? 0) - (a.under_edge ?? 0))
+    : rows
+
+  const filtered = statFilter === 'all' ? sortedRows : sortedRows.filter(r => r.stat === statFilter)
   const stats: (Stat | 'all')[] = ['all', 'points', 'rebounds', 'assists', 'threes']
 
   return (
     <div>
-      {/* Stat filter */}
       <div style={{ display: 'flex', gap: '6px', marginBottom: '12px', overflowX: 'auto', paddingBottom: '4px' }}>
         {stats.map(s => (
           <button
@@ -376,7 +395,6 @@ function MarketsTab({ rows, market }: { rows: MergedRow[]; market: Market }) {
         </div>
       ) : (
         <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '6px', overflow: 'hidden' }}>
-          {/* Column headers */}
           <div style={{
             display: 'grid',
             gridTemplateColumns: '1fr auto',
@@ -390,7 +408,7 @@ function MarketsTab({ rows, market }: { rows: MergedRow[]; market: Market }) {
               Edge · Model vs Mkt
             </span>
           </div>
-          {filtered.map((r, i) => <MarketRow key={i} row={r} />)}
+          {filtered.map((r, i) => <MarketRow key={i} row={r} isUnder={isUnder} />)}
         </div>
       )}
     </div>

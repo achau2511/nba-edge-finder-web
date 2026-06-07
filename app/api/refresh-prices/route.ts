@@ -109,15 +109,12 @@ async function fetchPolymarketPrices() {
         else underPrice = p
       }
       if (overPrice === null || underPrice === null) continue
-      if (overPrice + underPrice < 1.05) continue
-      // Filter illiquid: under price must be > 0.45
-      if (underPrice < 0.45) continue
-      if (overPrice <= 0) continue
 
       rows.push({
         player, stat, line,
         market: 'polymarket',
         price: Math.round(overPrice * 10000) / 10000,
+        under_price: Math.round(underPrice * 10000) / 10000,
         updated_at: new Date().toISOString(),
       })
     }

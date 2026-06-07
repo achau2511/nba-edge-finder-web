@@ -17,6 +17,7 @@ export interface MarketPrice {
   line: number
   market: Market
   price: number
+  under_price?: number
   updated_at: string
 }
 
@@ -30,6 +31,8 @@ export interface MergedRow {
   game_date: string
   market: Market
   market_price: number
+  under_price?: number
   edge: number
+  under_edge?: number
   updated_at: string
 }
